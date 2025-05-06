@@ -11,7 +11,7 @@
     <div class="navbar-right">
       <el-button class="nav-btn" round>制作指南</el-button>
       <el-button class="nav-btn" round>移除模板</el-button>
-      <el-button class="nav-btn" type="warning" round>保存封面</el-button>
+      <el-button class="nav-btn" type="warning" round @click="saveCover">保存封面</el-button>
     </div>
   </div>
   <!-- 主体内容flex布局 -->
@@ -49,14 +49,25 @@
     </div>
     <!-- 中间封面预览 -->
     <div class="cover-preview">
-      <div class="cover-image-canvas-wrap">
-        <canvas
-          ref="coverCanvas"
-          :width="canvasWidth"
-          :height="canvasHeight"
-          class="cover-canvas"
-          @mousedown="onCanvasMouseDown"
-        ></canvas>
+      <div class="cover-image-wrap" ref="coverPreview">
+        <img :src="templateList[selectedIndex]?.img" class="cover-image" alt="封面预览" />
+        <div class="cover-text-content">
+          <div 
+            class="main-title" 
+            :style="mainTitleStyle"
+            @mousedown="startDrag('mainTitle', $event)"
+          >{{ mainTitle }}</div>
+          <div 
+            class="sub-title" 
+            :style="subTitleStyle"  
+            @mousedown="startDrag('subTitle', $event)"
+          >{{ subTitle }}</div>
+          <div 
+            class="author-name" 
+            :style="authorStyle"
+            @mousedown="startDrag('author', $event)"
+          >{{ authorName }} 著</div>
+        </div>
       </div>
     </div>
     <!-- 右侧文字编辑区 -->
@@ -73,6 +84,18 @@
           <el-form-item label="主标题字距">
             <el-slider v-model="mainTitleLetterSpacing" :min="0" :max="20" />
           </el-form-item>
+          <el-form-item label="主标题粗细">
+            <el-select v-model="mainTitleFontWeight" placeholder="选择字重">
+              <el-option label="细体" value="300" />
+              <el-option label="常规" value="400" />
+              <el-option label="中等" value="500" />
+              <el-option label="粗体" value="600" />
+              <el-option label="特粗" value="700" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="主标题颜色">
+            <el-color-picker v-model="mainTitleColor" />
+          </el-form-item>
           <el-form-item label="副标题">
             <el-input v-model="subTitle" placeholder="请输入副标题" />
           </el-form-item>
@@ -81,6 +104,18 @@
           </el-form-item>
           <el-form-item label="副标题字距">
             <el-slider v-model="subTitleLetterSpacing" :min="0" :max="20" />
+          </el-form-item>
+          <el-form-item label="副标题粗细">
+            <el-select v-model="subTitleFontWeight" placeholder="选择字重">
+              <el-option label="细体" value="300" />
+              <el-option label="常规" value="400" />
+              <el-option label="中等" value="500" />
+              <el-option label="粗体" value="600" />
+              <el-option label="特粗" value="700" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="副标题颜色">
+            <el-color-picker v-model="subTitleColor" />
           </el-form-item>
           <el-form-item label="作者名称">
             <el-input v-model="authorName" placeholder="请输入作者名称" />
@@ -95,34 +130,22 @@
             <el-select v-model="fontFamily" placeholder="选择字体">
               <el-option label="思源黑体" value="思源黑体" />
               <el-option label="微软雅黑" value="微软雅黑" />
+              <el-option label="宋体" value="宋体" />
+              <el-option label="黑体" value="黑体" />
+              <el-option label="楷体" value="楷体" />
+              <el-option label="仿宋" value="仿宋" />
+              <el-option label="华文黑体" value="华文黑体" />
+              <el-option label="华文宋体" value="华文宋体" />
+              <el-option label="华文楷体" value="华文楷体" />
+              <el-option label="华文仿宋" value="华文仿宋" />
+              <el-option label="华文琥珀" value="华文琥珀" />
+              <el-option label="华文新魏" value="华文新魏" />
+              <el-option label="华文隶书" value="华文隶书" />
+              <el-option label="幼圆" value="幼圆" />
+              <el-option label="方正姚体" value="方正姚体" />
             </el-select>
           </el-form-item>
         </el-form>
-      </div>
-      <div class="section-block">
-        <div class="section-title">文字模板</div>
-        <div class="text-template-list p-4">
-          <div
-            v-for="(tpl, idx) in textTemplateList"
-            :key="idx"
-            class="text-template-item"
-            :class="{ selected: selectedTextTemplate === idx }"
-            @click="selectTextTemplate(idx)"
-          >
-            <img :src="tpl.pattern_url" class="text-template-img" alt="纹理" />
-            <div class="text-template-info">
-              <div
-                class="text-template-font"
-                :style="{ fontFamily: tpl.font, fontSize: tpl.size + 'px' }"
-              >
-                {{ tpl.preview }}
-              </div>
-              <div class="text-template-meta">
-                {{ tpl.font }} / {{ tpl.size }}px
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -131,40 +154,38 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import { useRouter } from "vue-router";
-
-const selectedTextTemplate = ref(0);
-const currentPatternUrl = ref('');
-const currentMaterialUrl = ref('');
+import html2canvas from 'html2canvas';
 
 const fontFamily = ref("思源黑体");
-const mainTitle = ref("让你学习");
-const subTitle = ref("没让你修仙");
-const authorName = ref("老婆叫我来码字");
+const mainTitle = ref("主标题");
+const subTitle = ref("副标题");
+const authorName = ref("作者名");
 const mainTitleFontSize = ref(38);
 const mainTitleLetterSpacing = ref(0);
 const subTitleFontSize = ref(28);
 const subTitleLetterSpacing = ref(0);
-const mainTitlePosY = ref(180);
-const subTitlePosY = ref(240);
-const authorPosY = ref(400);
 const authorFontSize = ref(18);
 const authorColor = ref("#fff");
+const mainTitleFontWeight = ref("600");
+const subTitleFontWeight = ref("400");
+const mainTitleColor = ref("#fff");
+const subTitleColor = ref("#fff");
 const mainTitleStyle = computed(() => ({
   fontFamily: fontFamily.value,
   fontSize: mainTitleFontSize.value + "px",
   letterSpacing: mainTitleLetterSpacing.value + "px",
-  fontWeight: "bold",
+  fontWeight: mainTitleFontWeight.value,
   textAlign: "center",
-  color: "#fff",
+  color: mainTitleColor.value,
   textShadow: "0 2px 8px rgba(0,0,0,0.3)",
 }));
 const subTitleStyle = computed(() => ({
   fontFamily: fontFamily.value,
   fontSize: subTitleFontSize.value + "px",
   letterSpacing: subTitleLetterSpacing.value + "px",
-  fontWeight: "normal",
+  fontWeight: subTitleFontWeight.value,
   textAlign: "center",
-  color: "#fff",
+  color: subTitleColor.value,
   textShadow: "0 2px 8px rgba(0,0,0,0.3)",
 }));
 const authorStyle = computed(() => ({
@@ -174,6 +195,7 @@ const authorStyle = computed(() => ({
   textAlign: "center",
   textShadow: "0 2px 8px rgba(0,0,0,0.2)",
 }));
+
 const templateList = ref([
   {
     img: "https://cdn.qimao.com/bookimg/zww/upload/cover/tpl/source/16938163019852403.jpg",
@@ -376,254 +398,129 @@ const templateList = ref([
     usage: 7,
   },
 ]);
+
 const templateCount = templateList.value.length;
 const templateRows = computed(() => Math.ceil(templateCount / 3));
 const selectedIndex = ref(0);
 const router = useRouter();
-const canvasWidth = 360;
-const canvasHeight = 480;
-const coverCanvas = ref(null);
-let dragging = ref(false);
-let dragType = "";
+
+const mainTitlePosY = ref(180);
+const subTitlePosY = ref(240);
+const authorPosY = ref(400);
+
+let isDragging = ref(false);
+let dragType = ref('');
 let dragStartY = 0;
 let dragOriginY = 0;
+
+const coverPreview = ref(null);
 
 function selectTemplate(idx) {
   selectedIndex.value = idx;
 }
-function saveCover() {
-  // 保存封面逻辑
+
+async function saveCover() {
+  try {
+    // 显示加载状态
+    const loading = ElLoading.service({
+      lock: true,
+      text: '正在生成封面...',
+      background: 'rgba(0, 0, 0, 0.7)'
+    });
+
+    // 等待图片加载完成
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = templateList.value[selectedIndex.value]?.img;
+    await new Promise((resolve) => {
+      img.onload = resolve;
+      img.onerror = resolve;
+    });
+
+    // 使用html2canvas生成图片
+    const canvas = await html2canvas(coverPreview.value, {
+      useCORS: true,
+      scale: 2, // 提高清晰度
+      backgroundColor: null,
+      logging: false,
+      allowTaint: true
+    });
+
+    // 生成文件名：主标题+副标题
+    const fileName = `${mainTitle.value}_${subTitle.value}.png`.replace(/[\\/:*?"<>|]/g, '_');
+
+    // 转换为图片并下载
+    const link = document.createElement('a');
+    link.download = fileName;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+
+    // 关闭加载状态
+    loading.close();
+
+    // 显示成功提示
+    ElMessage.success('封面保存成功');
+  } catch (error) {
+    console.error('保存封面失败:', error);
+    ElMessage.error('保存封面失败，请重试');
+  }
 }
+
 function goBack() {
   router.back();
 }
 
-// 生成水印数据
-function genWatermarks() {
-  const count = Math.floor(Math.random() * 7) + 6; // 6-12
-  const arr = [];
-  for (let i = 0; i < count; i++) {
-    arr.push({
-      x: Math.random() * (canvasWidth - 120) + 60,
-      y: Math.random() * (canvasHeight - 40) + 20,
-      angle: Math.random() * 360,
-      alpha: 0.12 + Math.random() * 0.08,
-    });
+function startDrag(type, event) {
+  isDragging.value = true;
+  dragType.value = type;
+  dragStartY = event.clientY;
+  
+  switch(type) {
+    case 'mainTitle':
+      dragOriginY = mainTitlePosY.value;
+      break;
+    case 'subTitle':
+      dragOriginY = subTitlePosY.value;
+      break;
+    case 'author':
+      dragOriginY = authorPosY.value;
+      break;
   }
-  return arr;
-}
-const watermarks = ref(genWatermarks());
-
-// 重新生成水印（如需刷新）
-function refreshWatermarks() {
-  watermarks.value = genWatermarks();
-}
-
-// 渲染canvas
-function renderCanvas() {
-  const ctx = coverCanvas.value.getContext("2d");
-  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
   
-  // 加载底图
-  const baseImg = new window.Image();
-  baseImg.crossOrigin = "anonymous";
-  baseImg.src = templateList.value[selectedIndex.value]?.img;
-  
-  // 加载图案图片
-  const patternImg = new window.Image();
-  patternImg.crossOrigin = "anonymous";
-  patternImg.src = currentPatternUrl.value || '';
-  
-  // 等待所有图片加载完成
-  Promise.all([
-    new Promise(resolve => {
-      baseImg.onload = resolve;
-      baseImg.onerror = resolve;
-    }),
-    new Promise(resolve => {
-      patternImg.onload = resolve;
-      patternImg.onerror = resolve;
-    })
-  ]).then(() => {
-    // 绘制底图
-    ctx.drawImage(baseImg, 0, 0, canvasWidth, canvasHeight);
-    
-    // 绘制水印
-    watermarks.value.forEach((wm) => {
-      ctx.save();
-      ctx.globalAlpha = wm.alpha;
-      ctx.translate(wm.x, wm.y);
-      ctx.rotate((wm.angle * Math.PI) / 180);
-      ctx.font = "bold 20px sans-serif";
-      ctx.fillStyle = "#fff";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.strokeStyle = "rgba(0,0,0,0.08)";
-      ctx.lineWidth = 2;
-      ctx.strokeText("火猿封面设计", 0, 0);
-      ctx.fillText("火猿封面设计", 0, 0);
-      ctx.restore();
-    });
-
-    // 如果图案图片加载成功，绘制文字背景
-    if (patternImg.complete && patternImg.naturalWidth > 0) {
-      // 绘制主标题背景
-      ctx.save();
-      ctx.font = `${mainTitleFontSize.value}px ${fontFamily.value}`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      
-      // 创建主标题的路径
-      const mainTitleMetrics = ctx.measureText(mainTitle.value);
-      const mainTitleX = canvasWidth / 2;
-      const mainTitleY = mainTitlePosY.value;
-      
-      // 使用图案填充文字
-      const pattern = ctx.createPattern(patternImg, "repeat");
-      ctx.fillStyle = pattern;
-      ctx.fillText(mainTitle.value, mainTitleX, mainTitleY);
-      ctx.restore();
-
-      // 绘制副标题背景
-      ctx.save();
-      ctx.font = `${subTitleFontSize.value}px ${fontFamily.value}`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      
-      // 创建副标题的路径
-      const subTitleMetrics = ctx.measureText(subTitle.value);
-      const subTitleX = canvasWidth / 2;
-      const subTitleY = subTitlePosY.value;
-      
-      // 使用图案填充文字
-      ctx.fillStyle = pattern;
-      ctx.fillText(subTitle.value, subTitleX, subTitleY);
-      ctx.restore();
-    }
-  });
+  document.addEventListener('mousemove', onDrag);
+  document.addEventListener('mouseup', stopDrag);
 }
 
-// 拖拽逻辑
-function onCanvasMouseDown(e) {
-  const rect = coverCanvas.value.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-  // 判断点中了哪一行（主标题、副标题、作者）
-  const hitPadding = 20;
-  if (Math.abs(y - mainTitlePosY.value) < hitPadding) {
-    dragging.value = true;
-    dragType = 'mainTitle';
-    dragStartY = e.clientY;
-    dragOriginY = mainTitlePosY.value;
-  } else if (Math.abs(y - subTitlePosY.value) < hitPadding) {
-    dragging.value = true;
-    dragType = 'subTitle';
-    dragStartY = e.clientY;
-    dragOriginY = subTitlePosY.value;
-  } else if (Math.abs(y - authorPosY.value) < hitPadding) {
-    dragging.value = true;
-    dragType = 'author';
-    dragStartY = e.clientY;
-    dragOriginY = authorPosY.value;
-  } else {
-    return;
-  }
-  document.addEventListener('mousemove', onDragCanvasText);
-  document.addEventListener('mouseup', stopDragCanvasText);
-}
-
-function onDragCanvasText(e) {
-  if (!dragging.value) return;
-  const deltaY = e.clientY - dragStartY;
-  if (dragType === 'mainTitle') {
-    mainTitlePosY.value = Math.max(0, Math.min(canvasHeight - 60, dragOriginY + deltaY));
-  } else if (dragType === 'subTitle') {
-    subTitlePosY.value = Math.max(0, Math.min(canvasHeight - 40, dragOriginY + deltaY));
-  } else if (dragType === 'author') {
-    authorPosY.value = Math.max(0, Math.min(canvasHeight - 40, dragOriginY + deltaY));
+function onDrag(event) {
+  if (!isDragging.value) return;
+  
+  const deltaY = event.clientY - dragStartY;
+  const newY = dragOriginY + deltaY;
+  
+  switch(dragType.value) {
+    case 'mainTitle':
+      mainTitlePosY.value = Math.max(0, Math.min(480 - 60, newY));
+      break;
+    case 'subTitle':
+      subTitlePosY.value = Math.max(0, Math.min(480 - 40, newY));
+      break;
+    case 'author':
+      authorPosY.value = Math.max(0, Math.min(480 - 40, newY));
+      break;
   }
 }
 
-function stopDragCanvasText() {
-  dragging.value = false;
-  dragType = '';
-  document.removeEventListener('mousemove', onDragCanvasText);
-  document.removeEventListener('mouseup', stopDragCanvasText);
-  renderCanvas();
+function stopDrag() {
+  isDragging.value = false;
+  dragType.value = '';
+  document.removeEventListener('mousemove', onDrag);
+  document.removeEventListener('mouseup', stopDrag);
 }
 
-// 监听底图/水印变化
-watch([selectedIndex, watermarks], () => {
-  renderCanvas();
-});
-
-// 监听文字模板选择变化
-watch([selectedTextTemplate, mainTitle, subTitle, mainTitleFontSize, subTitleFontSize, fontFamily, mainTitlePosY, subTitlePosY], () => {
-  renderCanvas();
-});
-
-onMounted(() => {
-  renderCanvas();
-});
 onBeforeUnmount(() => {
-  document.removeEventListener("mousemove", onDragCanvasText);
-  document.removeEventListener("mouseup", stopDragCanvasText);
+  document.removeEventListener('mousemove', onDrag);
+  document.removeEventListener('mouseup', stopDrag);
 });
-
-const textTemplateList = ref([
-  {
-    font: "思源黑体",
-    size: 32,
-    pattern_url:
-      "https://cdn.qimao.com/bookimg/zww/upload/cover/specialwords/pattern/170972139475187802.jpg?time=1709721394",
-    material_url:
-      "https://cdn.qimao.com/bookimg/zww/upload/cover/specialwords/material/170972191395957983.png?time=1709721913",
-    preview: "AW38",
-  },
-  {
-    font: "微软雅黑",
-    size: 28,
-    pattern_url:
-      "https://cdn.qimao.com/bookimg/zww/upload/cover/specialwords/pattern/170972134049097872.jpg?time=1709721340",
-    material_url:
-      "https://cdn.qimao.com/bookimg/zww/upload/cover/specialwords/material/170972134058844043.png?time=1709721340",
-    preview: "AW37",
-  },
-  {
-    font: "楷体",
-    size: 36,
-    pattern_url:
-      "https://cdn.qimao.com/bookimg/zww/upload/cover/specialwords/pattern/170972130924568332.jpg?time=1709721309",
-    material_url:
-      "https://cdn.qimao.com/bookimg/zww/upload/cover/specialwords/material/170972188448875113.png?time=1709721884",
-    preview: "AW36",
-  },
-  {
-    font: "宋体",
-    size: 30,
-    pattern_url:
-      "https://cdn.qimao.com/bookimg/zww/upload/cover/specialwords/pattern/170972117864373752.jpg?time=1709721178",
-    material_url:
-      "https://cdn.qimao.com/bookimg/zww/upload/cover/specialwords/material/170972117826020153.png?time=1709721178",
-    preview: "AW35",
-  },
-  {
-    font: "黑体",
-    size: 34,
-    pattern_url:
-      "https://cdn.qimao.com/bookimg/zww/upload/cover/specialwords/pattern/170972113152687072.jpg?time=1709721131",
-    material_url:
-      "https://cdn.qimao.com/bookimg/zww/upload/cover/specialwords/material/170972113177092153.png?time=1709721131",
-    preview: "AW34",
-  },
-  // ...可继续补充 ...
-]);
-
-function selectTextTemplate(idx) {
-  selectedTextTemplate.value = idx;
-  currentPatternUrl.value = textTemplateList.value[idx].pattern_url;
-  currentMaterialUrl.value = textTemplateList.value[idx].material_url;
-}
 </script>
 
 <style scoped>
@@ -754,20 +651,64 @@ function selectTextTemplate(idx) {
   align-items: center;
   height: 100%;
 }
-.cover-image-canvas-wrap {
+.cover-image-wrap {
   position: relative;
   width: 360px;
   height: 480px;
   background: #eee;
-  border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
 }
-.cover-canvas {
-  width: 360px;
-  height: 480px;
+.cover-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   display: block;
-  border-radius: 12px;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.cover-text-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  box-sizing: border-box;
+}
+.main-title {
+  margin-bottom: 20px;
+  width: 100%;
+  cursor: move;
+  user-select: none;
+  position: absolute;
+  top: v-bind(mainTitlePosY + 'px');
+  left: 0;
+  font-family: v-bind(fontFamily);
+}
+.sub-title {
+  margin-bottom: 40px;
+  width: 100%;
+  cursor: move;
+  user-select: none;
+  position: absolute;
+  top: v-bind(subTitlePosY + 'px');
+  left: 0;
+  font-family: v-bind(fontFamily);
+}
+.author-name {
+  margin-top: 40px;
+  width: 100%;
+  cursor: move;
+  user-select: none;
+  position: absolute;
+  top: v-bind(authorPosY + 'px');
+  left: 0;
+  font-family: v-bind(fontFamily);
 }
 .text-editor {
   width: 400px;
@@ -792,55 +733,5 @@ function selectTextTemplate(idx) {
   padding: 18px 24px 0 24px;
   color: #222;
   letter-spacing: 1px;
-}
-.text-template-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-top: 8px;
-}
-.text-template-item {
-  width: 100%;
-  height: 70px;
-  background: #f7f7f7;
-  border-radius: 10px;
-  border: 2px solid transparent;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  transition: border 0.2s;
-  padding: 6px 10px;
-  box-sizing: border-box;
-  overflow: hidden;
-}
-.text-template-item.selected {
-  border: 2px solid #ffd900;
-  background: #fffbe6;
-}
-.text-template-img {
-  width: 48px;
-  height: 48px;
-  border-radius: 6px;
-  object-fit: cover;
-  margin-right: 10px;
-  background: #eee;
-}
-.text-template-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-.text-template-font {
-  font-weight: bold;
-  margin-bottom: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 20px !important;
-}
-.text-template-meta {
-  font-size: 12px;
-  color: #888;
 }
 </style>
